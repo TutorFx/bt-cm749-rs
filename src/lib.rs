@@ -4,4 +4,5 @@
 pub mod context;
 pub mod error;
 pub mod exec;
+pub mod os_release;
 pub mod signals;
