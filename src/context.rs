@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 pub const MODULE_NAME: &str = "bt-cm749";
 pub const MODULE_VERSION: &str = "0.3";
+pub const PATCH: &str = include_str!("../assets/bt-cm749.patch");
 
 /// Runtime configuration. Defaults point at the real system; the environment
 /// variables honoured by the original scripts (OS_RELEASE_FILE, CUSTOM_USR_SRC,

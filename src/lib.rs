@@ -6,4 +6,5 @@ pub mod error;
 pub mod exec;
 pub mod kernel;
 pub mod os_release;
+pub mod patch;
 pub mod signals;
