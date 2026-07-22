@@ -6,8 +6,10 @@
 //! already applied instead of failing, which makes re-running idempotent.
 
 use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
 
-use crate::error::Result;
+use crate::error::{Error, IoContext, Result};
 
 pub const MAX_FUZZ: usize = 2;
 
@@ -249,6 +251,86 @@ fn locate(
     })
 }
 
+/// Picks the path of `fp` relative to `dir` by stripping leading components, trying
+/// the strip levels the shell script used (3, 1, 0) before the remaining ones.
+pub fn resolve_target(fp: &FilePatch, dir: &Path) -> Option<PathBuf> {
+    let candidates = [&fp.new_path, &fp.old_path];
+    let depth = candidates.iter().map(|p| p.split('/').count()).max().unwrap_or(0);
+    let order = [3, 1, 0].into_iter().chain(2..depth);
+    for strip in order {
+        for path in candidates {
+            if path == "/dev/null" {
+                continue;
+            }
+            let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+            if strip >= parts.len() || parts[strip..].iter().any(|p| *p == ".." || *p == ".") {
+                continue;
+            }
+            let rel: PathBuf = parts[strip..].iter().collect();
+            if dir.join(&rel).is_file() {
+                return Some(rel);
+            }
+        }
+    }
+    None
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum FileStatus {
+    Applied,
+    AlreadyApplied,
+}
+
+/// Applies every file section of `patch_text` inside `dir`. Files are only written
+/// when all their hunks either applied or were already present.
+pub fn apply_in_dir(patch_text: &str, dir: &Path, name: &str) -> Result<FileStatus> {
+    let files = parse(patch_text).map_err(|e| Error::Patch(format!("{name}: {e}")))?;
+    let mut all_present = true;
+    let mut pending = Vec::new();
+    for fp in &files {
+        let rel =
+            resolve_target(fp, dir).ok_or_else(|| Error::Patch(format!("{name}: target {} not found", fp.new_path)))?;
+        let path = dir.join(&rel);
+        let original = fs::read_to_string(&path).ctx(|| format!("reading {}", path.display()))?;
+        let outcome = apply(fp, &original);
+        if outcome.failed() {
+            let failed: Vec<String> = outcome
+                .hunks
+                .iter()
+                .enumerate()
+                .filter(|(_, h)| **h == HunkResult::Failed)
+                .map(|(i, _)| (i + 1).to_string())
+                .collect();
+            return Err(Error::Patch(format!("{name}: hunk(s) #{} FAILED on {}", failed.join(", #"), rel.display())));
+        }
+        for (i, h) in outcome.hunks.iter().enumerate() {
+            match h {
+                HunkResult::Applied { offset: 0, fuzz: 0 } => {}
+                HunkResult::Applied { offset, fuzz } => {
+                    println!("Hunk #{} succeeded on {} (offset {offset} lines, fuzz {fuzz}).", i + 1, rel.display())
+                }
+                HunkResult::AlreadyApplied => println!("Hunk #{} already present in {}.", i + 1, rel.display()),
+                HunkResult::Failed => unreachable!(),
+            }
+        }
+        all_present &= outcome.fully_already_applied();
+        pending.push((path, outcome.content));
+    }
+    for (path, content) in pending {
+        write_atomic(&path, &content)?;
+    }
+    Ok(if all_present { FileStatus::AlreadyApplied } else { FileStatus::Applied })
+}
+
+pub fn write_atomic(path: &Path, content: &str) -> Result<()> {
+    let tmp = path.with_extension(format!("{}.tmp", path.extension().map(|e| e.to_string_lossy()).unwrap_or_default()));
+    fs::write(&tmp, content).ctx(|| format!("writing {}", tmp.display()))?;
+    if let Ok(meta) = fs::metadata(path) {
+        let _ = fs::set_permissions(&tmp, meta.permissions());
+    }
+    fs::rename(&tmp, path).ctx(|| format!("replacing {}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,6 +412,18 @@ mod tests {
     fn reports_failure_when_context_is_missing() {
         let out = apply(&parse(DIFF).unwrap()[0], "x\ny\nz\n");
         assert!(out.failed());
+    }
+
+    #[test]
+    fn resolves_strip_level_and_rejects_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("f.c"), "").unwrap();
+        let fp = &parse(DIFF).unwrap()[0];
+        // b/dir/f.c needs -p2 here.
+        assert_eq!(resolve_target(fp, dir.path()), Some(PathBuf::from("f.c")));
+        let evil =
+            FilePatch { old_path: "a/../../etc/passwd".into(), new_path: "b/../../etc/passwd".into(), hunks: vec![] };
+        assert_eq!(resolve_target(&evil, dir.path()), None);
     }
 
     #[test]
