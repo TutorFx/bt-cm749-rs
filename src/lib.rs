@@ -8,3 +8,4 @@ pub mod kernel;
 pub mod os_release;
 pub mod patch;
 pub mod signals;
+pub mod source;

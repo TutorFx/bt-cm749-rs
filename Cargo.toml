@@ -7,8 +7,10 @@ rust-version = "1.85"
 edition = "2024"
 
 [dependencies]
+liblzma = { version = "0.4.8", features = ["static"] }
 rustix = { version = "1.1.5", features = ["process", "system"] }
 signal-hook = "0.4.5"
+tar = "0.4.46"
 thiserror = "2.0.21"
 which = "8.0.6"
 
