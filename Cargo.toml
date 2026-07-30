@@ -7,11 +7,14 @@ rust-version = "1.85"
 edition = "2024"
 
 [dependencies]
+indicatif = "0.18.6"
 liblzma = { version = "0.4.8", features = ["static"] }
-rustix = { version = "1.1.5", features = ["process", "system"] }
+rustix = { version = "1.1.5", features = ["process", "system", "fs"] }
+sha2 = "0.11.0"
 signal-hook = "0.4.5"
 tar = "0.4.46"
 thiserror = "2.0.21"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 which = "8.0.6"
 
 [dev-dependencies]
