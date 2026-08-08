@@ -1,0 +1,16 @@
+---
+source: src/dkms.rs
+expression: render_conf(None)
+---
+PACKAGE_NAME="bt-cm749"
+PACKAGE_VERSION="0.3"
+
+BUILT_MODULE_NAME[0]="btusb"
+BUILT_MODULE_LOCATION[0]="."
+DEST_MODULE_LOCATION[0]="/updates/dkms"
+
+MAKE[0]="make -C ${kernel_source_dir} M=${dkms_tree}/${PACKAGE_NAME}/${PACKAGE_VERSION}/build"
+
+PRE_BUILD="bt-cm749 prebuild --kernel ${kernelver} drivers/bluetooth"
+
+AUTOINSTALL="yes"

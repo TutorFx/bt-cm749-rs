@@ -3,6 +3,11 @@ use std::path::PathBuf;
 
 pub const MODULE_NAME: &str = "bt-cm749";
 pub const MODULE_VERSION: &str = "0.3";
+/// Versions registered in DKMS by the former shell implementation.
+pub const LEGACY_MODULE_VERSIONS: &[&str] = &["0.2"];
+/// Name of the binary copied into the DKMS source tree and invoked as PRE_BUILD.
+pub const PREBUILD_BIN: &str = "bt-cm749";
+pub const PATCH_FILE: &str = "bt-cm749.patch";
 pub const PATCH: &str = include_str!("../assets/bt-cm749.patch");
 
 /// Runtime configuration. Defaults point at the real system; the environment

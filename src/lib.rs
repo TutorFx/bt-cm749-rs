@@ -3,6 +3,7 @@
 
 pub mod context;
 pub mod distro;
+pub mod dkms;
 pub mod error;
 pub mod exec;
 pub mod kernel;
