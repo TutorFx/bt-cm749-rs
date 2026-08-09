@@ -9,5 +9,6 @@ pub mod exec;
 pub mod kernel;
 pub mod os_release;
 pub mod patch;
+pub mod prebuild;
 pub mod signals;
 pub mod source;
