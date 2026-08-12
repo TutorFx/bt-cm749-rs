@@ -6,6 +6,7 @@ pub mod distro;
 pub mod dkms;
 pub mod error;
 pub mod exec;
+pub mod install;
 pub mod kernel;
 pub mod os_release;
 pub mod patch;
