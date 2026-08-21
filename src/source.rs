@@ -56,6 +56,15 @@ pub fn ensure_tarball(cache: &Path, major: u32, source_version: &str, installed:
     if target.is_file() {
         return Ok(target);
     }
+    // Serialise concurrent builds (e.g. DKMS building several kernels) on the same tarball.
+    let lock_path = cache.join(format!("{name}.lock"));
+    let lock = File::create(&lock_path).ctx(|| format!("creating {}", lock_path.display()))?;
+    rustix::fs::flock(&lock, rustix::fs::FlockOperation::LockExclusive)
+        .map_err(io::Error::from)
+        .ctx(|| format!("locking {}", lock_path.display()))?;
+    if target.is_file() {
+        return Ok(target);
+    }
     println!("Downloading source {source_version} for installed kernel {installed}...");
     let agent: Agent = Agent::config_builder()
         .ip_family(IpFamily::Ipv4Only)
