@@ -54,6 +54,9 @@ pub enum Command {
         /// Kernel being built [env: kernelver]
         #[arg(long, short, env = "kernelver")]
         kernel: Option<String>,
+        /// Only build these modules (repeatable); default: the whole directory
+        #[arg(long, value_name = "MODULE")]
+        only: Vec<String>,
         /// Kernel source subdirectory to extract
         subdir: String,
     },
@@ -96,10 +99,10 @@ pub fn run(cli: Cli) -> Result<()> {
             println!("Upstream tarball: linux-{}.tar.xz", kv.source_version());
             Ok(())
         }
-        Command::Prebuild { kernel, subdir } => {
+        Command::Prebuild { kernel, only, subdir } => {
             let ctx = cli.context(kernel.as_ref());
             let cwd = std::env::current_dir().ctx(|| "reading current directory".into())?;
-            prebuild::prebuild(&ctx, subdir, &cwd, &runner)
+            prebuild::prebuild(&ctx, only, subdir, &cwd, &runner)
         }
     }
 }

@@ -14,7 +14,7 @@ fn assert_module_tree(sb: &Sandbox) {
         assert!(patch.contains(needle), "patch lacks {needle}");
     }
     let conf = std::fs::read_to_string(dir.join("dkms.conf")).unwrap();
-    assert!(conf.contains(r#"PRE_BUILD="bt-cm749 prebuild --kernel ${kernelver} drivers/bluetooth""#));
+    assert!(conf.contains(r#"PRE_BUILD="bt-cm749 prebuild --kernel ${kernelver} --only btusb drivers/bluetooth""#));
 }
 
 #[test]

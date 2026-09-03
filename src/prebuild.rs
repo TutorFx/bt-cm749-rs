@@ -11,7 +11,10 @@ use crate::os_release::Distro;
 use crate::patch::{self, FileStatus};
 use crate::{kernel, source};
 
-pub fn prebuild(ctx: &Context, subdir: &str, build_dir: &Path, runner: &dyn Runner) -> Result<()> {
+/// `only` restricts the build to the listed modules through a generated `Kbuild`
+/// (which takes precedence over the extracted Makefile), so unrelated drivers in the
+/// same directory can neither slow down nor break the DKMS build.
+pub fn prebuild(ctx: &Context, only: &[String], subdir: &str, build_dir: &Path, runner: &dyn Runner) -> Result<()> {
     let distro = Distro::detect(&ctx.os_release_file);
     let kv = kernel::detect(ctx.kernel_version.as_deref(), distro, &ctx.headers_root, runner)?;
     println!("{}", kv.describe());
@@ -26,6 +29,11 @@ pub fn prebuild(ctx: &Context, subdir: &str, build_dir: &Path, runner: &dyn Runn
 
     println!("Extracting original source of the kernel module...");
     source::extract_subdir(&tarball, &format!("linux-{version}"), subdir, build_dir)?;
+    if !only.is_empty() {
+        let objs: Vec<String> = only.iter().map(|m| format!("{m}.o")).collect();
+        let kbuild = build_dir.join("Kbuild");
+        fs::write(&kbuild, format!("obj-m := {}\n", objs.join(" "))).ctx(|| format!("writing {}", kbuild.display()))?;
+    }
 
     for path in patch_files(build_dir)? {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();

@@ -11,7 +11,7 @@ use bt_cm749::context::PATCH;
 fn prebuild(dir: &Path, kernel: &str) -> std::process::Output {
     fs::write(dir.join("bt-cm749.patch"), PATCH).unwrap();
     Command::new(assert_cmd::cargo::cargo_bin("bt-cm749"))
-        .args(["prebuild", "--kernel", kernel, "drivers/bluetooth"])
+        .args(["prebuild", "--kernel", kernel, "--only", "btusb", "drivers/bluetooth"])
         .current_dir(dir)
         .output()
         .unwrap()

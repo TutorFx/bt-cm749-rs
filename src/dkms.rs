@@ -23,7 +23,7 @@ DEST_MODULE_LOCATION[0]="/updates/dkms"
 
 MAKE[0]="make{cc} -C ${{kernel_source_dir}} M=${{dkms_tree}}/${{PACKAGE_NAME}}/${{PACKAGE_VERSION}}/build"
 
-PRE_BUILD="{PREBUILD_BIN} prebuild --kernel ${{kernelver}} drivers/bluetooth"
+PRE_BUILD="{PREBUILD_BIN} prebuild --kernel ${{kernelver}} --only btusb drivers/bluetooth"
 
 AUTOINSTALL="yes"
 "#
