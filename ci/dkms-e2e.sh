@@ -34,11 +34,14 @@ grep -E "Detected kernel|pre_build|Building module|Installing|Installation compl
 dkms status | tee /tmp/status
 grep -q "bt-cm749/0.3, ${KV}.*installed" /tmp/status
 
-MODULE=$(find "/usr/lib/modules/${KV}/updates" -name 'btusb.ko*' | head -1)
+# DKMS installs to updates/dkms, except on Fedora where its policy forces extra/.
+find_dkms_btusb() { find "/usr/lib/modules/${KV}" \( -path '*/updates/*' -o -path '*/extra/*' \) -name 'btusb.ko*'; }
+MODULE=$(find_dkms_btusb | head -1)
+test -n "${MODULE}"
 echo "### module: ${MODULE}"
 case "${MODULE}" in
   *.zst) zstd -qdc "${MODULE}" ;; *.xz) xz -dc "${MODULE}" ;; *) cat "${MODULE}" ;;
-esac | grep -aq "Unexpected continuation"
+esac | grep -a "Unexpected continuation" >/dev/null  # no -q: it would SIGPIPE the producer under pipefail
 echo "### module contains the Barrot continuation handler"
 
 "${BIN}" install > /tmp/install2.log 2>&1 || { echo "### reinstall FAILED"; tail -20 /tmp/install2.log; exit 1; }
@@ -47,6 +50,6 @@ echo "### reinstall OK"
 "${BIN}" uninstall > /tmp/uninstall.log 2>&1
 test -z "$(dkms status)"
 test ! -e /usr/src/bt-cm749-0.3
-test -z "$(find "/usr/lib/modules/${KV}" -path '*updates*' -name 'btusb*' 2>/dev/null)"
+test -z "$(find_dkms_btusb)"
 echo "### uninstall left no traces"
 echo "### E2E PASSED"
