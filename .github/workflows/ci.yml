@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint-test:
+    name: fmt, clippy, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  kernel-sources:
+    name: patch real kernel sources (network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: /tmp/dkms-kernel-src
+          key: kernel-tarballs-v1
+      - run: cargo test --locked --test kernel_sources patches_multiple_kernels -- --ignored
+
+  static:
+    name: static binary (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-latest }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    container: rust:1-alpine
+    steps:
+      - uses: actions/checkout@v4
+      - run: apk add --no-cache musl-dev make perl
+      - run: cargo build --release --locked --target ${{ matrix.arch }}-unknown-linux-musl
+      - run: cp target/${{ matrix.arch }}-unknown-linux-musl/release/bt-cm749 bt-cm749-${{ matrix.arch }}-linux-musl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bt-cm749-${{ matrix.arch }}-linux-musl
+          path: bt-cm749-${{ matrix.arch }}-linux-musl
+
+  dkms-e2e:
+    name: DKMS end-to-end on ${{ matrix.image }}
+    needs: static
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: "archlinux:latest", experimental: false }
+          - { image: "fedora:41", experimental: false }
+          # Ubuntu's stable kernels backport Bluetooth API changes, so the vanilla
+          # kernel.org btusb.c does not build against their headers.
+          - { image: "ubuntu:24.04", experimental: true }
+    continue-on-error: ${{ matrix.experimental }}
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bt-cm749-x86_64-linux-musl
+      - run: chmod +x bt-cm749-x86_64-linux-musl && ci/dkms-e2e.sh "$PWD/bt-cm749-x86_64-linux-musl"
