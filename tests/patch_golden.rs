@@ -41,6 +41,17 @@ fn upstream_7_1_2_is_already_patched() {
     assert!(content == fixture("btusb-7.1.2.c"), "already-patched source must stay untouched");
 }
 
+/// 7.2.9 added `BTUSB_BROKEN_EXT_SCAN` right after the upstreamed `BTUSB_BARROT`, so
+/// hunk #1's post-image no longer matches. GNU patch fails that hunk and re-applies
+/// #2/#3 with fuzz 2, duplicating the device IDs; the engine must leave it untouched.
+#[test]
+fn upstream_7_2_9_with_edited_context_is_already_patched() {
+    let (status, content, _d) = patch_version("7.2.9");
+    assert_eq!(status, FileStatus::AlreadyApplied);
+    assert!(content == fixture("btusb-7.2.9.c"), "already-patched source must stay untouched");
+    assert_eq!(content.matches("USB_DEVICE(0x33fa, 0x0010)").count(), 1);
+}
+
 #[test]
 fn reapplying_is_idempotent() {
     for version in ["6.6.70", "6.12.10"] {

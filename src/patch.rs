@@ -180,7 +180,12 @@ pub fn apply(fp: &FilePatch, original: &str) -> Outcome {
     for hunk in &fp.hunks {
         let (lead, trail) = (hunk.leading_context(), hunk.trailing_context());
         let forward = |fuzz: usize| {
-            let (pre, post) = (fuzz.min(lead), fuzz.min(trail));
+            // Fuzz never drops the last context line on a side: a hunk stripped of
+            // all its context would "match" anywhere.
+            let (pre, post) = (fuzz.min(lead.saturating_sub(1)), fuzz.min(trail.saturating_sub(1)));
+            if fuzz > 0 && pre == 0 && post == 0 {
+                return None;
+            }
             locate(&lines, hunk, false, pre, post, offset, floor).map(|pos| (pos, fuzz, pre, post))
         };
         // Exact forward match first, then "already applied" (exact post-image), and
@@ -192,6 +197,15 @@ pub fn apply(fp: &FilePatch, original: &str) -> Outcome {
                 results.push(HunkResult::AlreadyApplied);
                 offset = pos as isize - hunk.old_start.saturating_sub(1) as isize;
                 floor = pos + after.len();
+                continue;
+            }
+            // Upstream may have merged the change and then edited around it (e.g. a new
+            // flag right after the added #define), so the post-image no longer matches.
+            // For pure insertions, the added block itself being present is enough.
+            if let Some((pos, len)) = find_inserted_block(&lines, hunk, floor) {
+                results.push(HunkResult::AlreadyApplied);
+                offset = pos as isize - (hunk.old_start.saturating_sub(1) + lead) as isize;
+                floor = pos + len;
                 continue;
             }
         }
@@ -230,7 +244,7 @@ fn locate(
 ) -> Option<usize> {
     let (before, _) = hunk.image(reverse);
     let pattern = &before[pre..before.len() - post];
-    if pattern.len() > lines.len() {
+    if pattern.is_empty() || pattern.len() > lines.len() {
         return None;
     }
     let last = lines.len() - pattern.len();
@@ -249,6 +263,23 @@ fn locate(
         let before = expected.checked_sub(d).filter(|&b| b >= floor && d > 0)?;
         matches(before).then_some(before)
     })
+}
+
+/// For a hunk that only adds lines, finds its contiguous added block at or after
+/// `floor`. Blocks without substantial content (blank lines, braces) never match.
+fn find_inserted_block(lines: &[String], hunk: &Hunk, floor: usize) -> Option<(usize, usize)> {
+    if hunk.lines.iter().any(|l| matches!(l, Line::Remove(_))) {
+        return None;
+    }
+    let block: Vec<&str> =
+        hunk.lines.iter().filter_map(|l| if let Line::Add(s) = l { Some(s.as_str()) } else { None }).collect();
+    let substantial = block.iter().any(|l| l.chars().filter(|c| !c.is_whitespace()).count() >= 8);
+    if block.is_empty() || !substantial || block.len() > lines.len() {
+        return None;
+    }
+    (floor..=lines.len() - block.len())
+        .find(|&pos| block.iter().zip(&lines[pos..]).all(|(b, l)| *b == l.as_str()))
+        .map(|pos| (pos, block.len()))
 }
 
 /// Picks the path of `fp` relative to `dir` by stripping leading components, trying
@@ -406,6 +437,23 @@ mod tests {
         assert_eq!(out.hunks[0], HunkResult::AlreadyApplied);
         assert!(matches!(out.hunks[1], HunkResult::Applied { .. }));
         assert!(out.content.contains("h\nI\nj\n"));
+    }
+
+    #[test]
+    fn inserted_block_present_with_changed_context_counts_as_applied() {
+        let diff = "--- a/f\n+++ b/f\n@@ -1,3 +1,4 @@\n a\n b\n+#define NEW_FLAG BIT(28)\n c\n";
+        let fp = &parse(diff).unwrap()[0];
+        let upstream = "a\nb\n#define NEW_FLAG BIT(28)\n#define OTHER BIT(29)\nc\n";
+        let out = apply(fp, upstream);
+        assert_eq!(out.hunks, [HunkResult::AlreadyApplied]);
+        assert_eq!(out.content, upstream);
+    }
+
+    #[test]
+    fn trivial_inserted_blocks_are_not_taken_as_applied() {
+        let diff = "--- a/f\n+++ b/f\n@@ -1,2 +1,3 @@\n a\n+}\n b\n";
+        let out = apply(&parse(diff).unwrap()[0], "x\n}\ny\n");
+        assert!(out.failed());
     }
 
     #[test]
