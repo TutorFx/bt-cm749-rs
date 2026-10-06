@@ -14,3 +14,4 @@ pub mod patch;
 pub mod prebuild;
 pub mod signals;
 pub mod source;
+pub mod stock;

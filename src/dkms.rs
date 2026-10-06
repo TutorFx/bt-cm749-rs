@@ -121,6 +121,7 @@ mod tests {
             os_release_file: "/dev/null".into(),
             usr_src: tmp.path().join("usr/src"),
             headers_root: tmp.path().into(),
+            modules_root: tmp.path().into(),
             kernel_version: None,
             skip_root_check: true,
             cache_dir: None,

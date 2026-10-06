@@ -12,13 +12,16 @@ pub const PATCH: &str = include_str!("../assets/bt-cm749.patch");
 
 /// Runtime configuration. Defaults point at the real system; the environment
 /// variables honoured by the original scripts (OS_RELEASE_FILE, CUSTOM_USR_SRC,
-/// KERNEL_VERSION, SKIP_ROOT_CHECK) override them so tests can run in a sandbox.
+/// KERNEL_VERSION, SKIP_ROOT_CHECK) override them so tests can run in a sandbox,
+/// as do BT_CM749_CACHE_DIR and BT_CM749_MODULES_ROOT.
 #[derive(Debug, Clone)]
 pub struct Context {
     pub os_release_file: PathBuf,
     pub usr_src: PathBuf,
     /// Where distro kernel headers live (`linux-headers-<kver>/` on Debian).
     pub headers_root: PathBuf,
+    /// `/lib/modules` equivalent, used to inspect the distro's stock btusb module.
+    pub modules_root: PathBuf,
     pub kernel_version: Option<String>,
     pub skip_root_check: bool,
     /// Explicit kernel tarball cache, otherwise chosen at runtime.
@@ -32,6 +35,7 @@ impl Context {
             os_release_file: var("OS_RELEASE_FILE").map_or_else(|| "/etc/os-release".into(), PathBuf::from),
             usr_src: var("CUSTOM_USR_SRC").map_or_else(|| "/usr/src".into(), PathBuf::from),
             headers_root: "/usr/src".into(),
+            modules_root: var("BT_CM749_MODULES_ROOT").map_or_else(|| "/usr/lib/modules".into(), PathBuf::from),
             kernel_version: var("KERNEL_VERSION"),
             skip_root_check: var("SKIP_ROOT_CHECK").is_some(),
             cache_dir: var("BT_CM749_CACHE_DIR").map(PathBuf::from),
