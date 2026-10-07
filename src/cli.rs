@@ -6,6 +6,7 @@ use crate::context::Context;
 use crate::error::{IoContext, Result};
 use crate::exec::SystemRunner;
 use crate::os_release::Distro;
+use crate::stock::{self, StockDriver};
 use crate::{install, kernel, prebuild};
 
 /// Installs a DKMS-patched btusb driver for Barrot BR8554 based Bluetooth adapters
@@ -22,6 +23,9 @@ pub struct Cli {
     /// Kernel tarball cache [env: BT_CM749_CACHE_DIR; default: /var/cache/dkms-kernel-src]
     #[arg(long, global = true, value_name = "DIR")]
     pub cache_dir: Option<PathBuf>,
+    /// Kernel modules root used to inspect the stock driver [env: BT_CM749_MODULES_ROOT; default: /usr/lib/modules]
+    #[arg(long, global = true, value_name = "DIR")]
+    pub modules_root: Option<PathBuf>,
     /// Do not require root [env: SKIP_ROOT_CHECK]
     #[arg(long, global = true)]
     pub skip_root_check: bool,
@@ -37,6 +41,9 @@ pub enum Command {
         /// Target kernel release [env: KERNEL_VERSION; default: newest installed]
         #[arg(long, short)]
         kernel: Option<String>,
+        /// Install even if the kernel's stock btusb already supports the adapters
+        #[arg(long)]
+        force: bool,
     },
     /// Remove the DKMS module and restore the distribution's btusb driver
     Uninstall {
@@ -71,6 +78,9 @@ impl Cli {
         if let Some(p) = &self.usr_src {
             ctx.usr_src = p.clone();
         }
+        if let Some(p) = &self.modules_root {
+            ctx.modules_root = p.clone();
+        }
         if let Some(p) = &self.cache_dir {
             ctx.cache_dir = Some(p.clone());
         }
@@ -85,9 +95,9 @@ impl Cli {
 pub fn run(cli: Cli) -> Result<()> {
     let runner = SystemRunner;
     match &cli.command {
-        Command::Install { kernel } => {
+        Command::Install { kernel, force } => {
             let exe = std::env::current_exe().ctx(|| "locating own executable".into())?;
-            install::install(&cli.context(kernel.as_ref()), &exe, &runner)
+            install::install(&cli.context(kernel.as_ref()), &exe, *force, &runner)
         }
         Command::Uninstall { kernel } => install::uninstall(&cli.context(kernel.as_ref()), &runner),
         Command::Detect { kernel } => {
@@ -97,6 +107,15 @@ pub fn run(cli: Cli) -> Result<()> {
             println!("Distro family: {distro:?}");
             println!("{}", kv.describe());
             println!("Upstream tarball: linux-{}.tar.xz", kv.source_version());
+            match stock::inspect(&ctx.modules_root, &kv.release) {
+                StockDriver::Supported(p) => {
+                    println!("Stock btusb: already supports 33fa:0010/0012 ({}); install not needed", p.display())
+                }
+                StockDriver::Missing(p) => {
+                    println!("Stock btusb: lacks the Barrot fix ({}); install needed", p.display())
+                }
+                StockDriver::Unknown(reason) => println!("Stock btusb: unknown ({reason})"),
+            }
             Ok(())
         }
         Command::Prebuild { kernel, only, subdir } => {

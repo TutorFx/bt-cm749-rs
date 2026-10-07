@@ -27,7 +27,7 @@ impl Sandbox {
             dir: tempfile::Builder::new().prefix("bt_test_sandbox_").tempdir().unwrap(),
             kernel: Some(kernel.into()),
         };
-        for d in ["mock_bin", "etc", "usr/src", "cache"] {
+        for d in ["mock_bin", "etc", "usr/src", "cache", "lib/modules"] {
             fs::create_dir_all(sb.path(d)).unwrap();
         }
         fs::write(sb.path("etc/os-release"), os_release).unwrap();
@@ -89,12 +89,27 @@ impl Sandbox {
             ("OS_RELEASE_FILE".into(), self.path("etc/os-release").display().to_string()),
             ("CUSTOM_USR_SRC".into(), self.path("usr/src").display().to_string()),
             ("BT_CM749_CACHE_DIR".into(), self.path("cache").display().to_string()),
+            ("BT_CM749_MODULES_ROOT".into(), self.path("lib/modules").display().to_string()),
             ("SKIP_ROOT_CHECK".into(), "1".into()),
         ];
         if let Some(k) = &self.kernel {
             env.push(("KERNEL_VERSION".into(), k.clone()));
         }
         env
+    }
+
+    /// Places an uncompressed stock `btusb.ko` for `release`, with or without the
+    /// Barrot fix markers (quirks-table entries and the continuation warning).
+    pub fn stock_btusb(&self, release: &str, fixed: bool) -> &Self {
+        let dir = self.path(&format!("lib/modules/{release}/kernel/drivers/bluetooth"));
+        fs::create_dir_all(&dir).unwrap();
+        let mut ko = b"\x7fELF stock btusb".to_vec();
+        if fixed {
+            ko.extend_from_slice(&[0x03, 0x00, 0xfa, 0x33, 0x10, 0x00, 0x03, 0x00, 0xfa, 0x33, 0x12, 0x00]);
+            ko.extend_from_slice(b"Unexpected continuation: %d bytes");
+        }
+        fs::write(dir.join("btusb.ko"), ko).unwrap();
+        self
     }
 
     pub fn calls(&self) -> Vec<String> {

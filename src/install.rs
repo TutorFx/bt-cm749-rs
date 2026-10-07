@@ -7,6 +7,7 @@ use crate::context::{Context, LEGACY_MODULE_VERSIONS, MODULE_NAME, MODULE_VERSIO
 use crate::error::{Error, IoContext, Result};
 use crate::exec::{Cmd, Runner};
 use crate::os_release::Distro;
+use crate::stock::{self, StockDriver};
 use crate::{distro, dkms, kernel, signals, source};
 
 const RULE: &str = "============================================================";
@@ -16,21 +17,41 @@ pub fn check_root(ctx: &Context, action: &'static str) -> Result<()> {
 }
 
 /// Installs the module; any failure or SIGINT/SIGTERM rolls the system back and the
-/// original error (and exit code) is returned.
-pub fn install(ctx: &Context, prebuild_bin: &Path, runner: &dyn Runner) -> Result<()> {
+/// original error (and exit code) is returned. Unless `force` is set, nothing is
+/// installed when the kernel's stock btusb already supports the adapters.
+pub fn install(ctx: &Context, prebuild_bin: &Path, force: bool, runner: &dyn Runner) -> Result<()> {
     check_root(ctx, "setup")?;
     signals::install().ctx(|| "installing signal handlers".into())?;
-    let result = install_steps(ctx, prebuild_bin, runner);
+    let result = install_steps(ctx, prebuild_bin, force, runner);
     if let Err(err) = &result {
         rollback(ctx, err, runner);
     }
     result
 }
 
-fn install_steps(ctx: &Context, prebuild_bin: &Path, runner: &dyn Runner) -> Result<()> {
+fn install_steps(ctx: &Context, prebuild_bin: &Path, force: bool, runner: &dyn Runner) -> Result<()> {
     let distro = Distro::detect(&ctx.os_release_file);
     let kv = kernel::detect(ctx.kernel_version.as_deref(), distro, &ctx.headers_root, runner)?;
     println!("{}", kv.describe());
+    match stock::inspect(&ctx.modules_root, &kv.release) {
+        StockDriver::Supported(path) if !force => {
+            println!(
+                "The stock btusb driver of kernel {} ({}) already supports 33fa:0010 / 33fa:0012.\n\
+                 Nothing to install. Use --force to build the DKMS module anyway.",
+                kv.release,
+                path.display()
+            );
+            if ctx.module_dir().exists() || LEGACY_MODULE_VERSIONS.iter().any(|v| ctx.module_dir_for(v).exists()) {
+                println!(
+                    "An existing {MODULE_NAME} DKMS installation is no longer needed: remove it with 'sudo bt-cm749 uninstall'."
+                );
+            }
+            return Ok(());
+        }
+        StockDriver::Supported(_) => println!("Stock btusb already has the fix; installing anyway (--force)."),
+        StockDriver::Missing(path) => println!("Stock btusb ({}) lacks the Barrot fix.", path.display()),
+        StockDriver::Unknown(reason) => println!("Could not inspect the stock btusb driver ({reason}); proceeding."),
+    }
     println!("Setting up {MODULE_NAME} (v{MODULE_VERSION}) for kernel {}...", kv.release);
     if kv.is_recent() {
         println!(
