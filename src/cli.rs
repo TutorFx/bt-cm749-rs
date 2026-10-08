@@ -107,7 +107,7 @@ pub fn run(cli: Cli) -> Result<()> {
             println!("Distro family: {distro:?}");
             println!("{}", kv.describe());
             println!("Upstream tarball: linux-{}.tar.xz", kv.source_version());
-            match stock::inspect(&ctx.modules_root, &kv.release) {
+            match stock::inspect(&ctx.modules_root, &ctx.dkms_root, &kv.release) {
                 StockDriver::Supported(p) => {
                     println!("Stock btusb: already supports 33fa:0010/0012 ({}); install not needed", p.display())
                 }

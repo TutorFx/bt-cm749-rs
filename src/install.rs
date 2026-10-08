@@ -33,7 +33,7 @@ fn install_steps(ctx: &Context, prebuild_bin: &Path, force: bool, runner: &dyn R
     let distro = Distro::detect(&ctx.os_release_file);
     let kv = kernel::detect(ctx.kernel_version.as_deref(), distro, &ctx.headers_root, runner)?;
     println!("{}", kv.describe());
-    match stock::inspect(&ctx.modules_root, &kv.release) {
+    match stock::inspect(&ctx.modules_root, &ctx.dkms_root, &kv.release) {
         StockDriver::Supported(path) if !force => {
             println!(
                 "The stock btusb driver of kernel {} ({}) already supports 33fa:0010 / 33fa:0012.\n\

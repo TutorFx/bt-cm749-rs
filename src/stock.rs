@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
+use crate::context::MODULE_NAME;
+
 /// `struct usb_device_id` entries as compiled into the quirks table:
 /// match_flags = USB_DEVICE_ID_MATCH_DEVICE (0x0003), idVendor, idProduct (little endian).
 const DEVICE_IDS: [&[u8]; 2] = [&[0x03, 0x00, 0xfa, 0x33, 0x10, 0x00], &[0x03, 0x00, 0xfa, 0x33, 0x12, 0x00]];
@@ -22,16 +24,22 @@ pub enum StockDriver {
     Unknown(String),
 }
 
-/// Looks for `<modules_root>/<release>/kernel/drivers/bluetooth/btusb.ko[.zst|.xz|.gz]`.
-/// Our own DKMS module lives under `updates/` or `extra/` and is never inspected.
-pub fn inspect(modules_root: &Path, release: &str) -> StockDriver {
-    let dir = modules_root.join(release).join("kernel/drivers/bluetooth");
-    let Some(path) = ["btusb.ko", "btusb.ko.zst", "btusb.ko.xz", "btusb.ko.gz"]
-        .iter()
-        .map(|name| dir.join(name))
-        .find(|p| p.is_file())
-    else {
-        return StockDriver::Unknown(format!("no stock btusb module in {}", dir.display()));
+const NAMES: [&str; 4] = ["btusb.ko", "btusb.ko.zst", "btusb.ko.xz", "btusb.ko.gz"];
+
+/// Looks for `<modules_root>/<release>/kernel/drivers/bluetooth/btusb.ko[.zst|.xz|.gz]`,
+/// or for the copy DKMS keeps in `<dkms_root>/<module>/original_module/<release>/<arch>/`
+/// when an installed DKMS module displaced it. Our own module (under `updates/` or
+/// `extra/`) is never inspected.
+pub fn inspect(modules_root: &Path, dkms_root: &Path, release: &str) -> StockDriver {
+    let in_tree = modules_root.join(release).join("kernel/drivers/bluetooth");
+    let backups = std::fs::read_dir(dkms_root.join(MODULE_NAME).join("original_module").join(release))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path());
+    let dirs: Vec<PathBuf> = std::iter::once(in_tree.clone()).chain(backups).collect();
+    let Some(path) = dirs.iter().flat_map(|d| NAMES.iter().map(move |n| d.join(n))).find(|p| p.is_file()) else {
+        return StockDriver::Unknown(format!("no stock btusb module in {}", in_tree.display()));
     };
     match read_module(&path) {
         Ok(bytes) if has_fix(&bytes) => StockDriver::Supported(path),
@@ -103,7 +111,13 @@ pub mod tests {
         for name in ["btusb.ko", "btusb.ko.zst", "btusb.ko.xz", "btusb.ko.gz"] {
             let root = tempfile::tempdir().unwrap();
             write_module(root.path(), "7.0.0-38-generic", name, &module_bytes(true));
-            assert!(matches!(inspect(root.path(), "7.0.0-38-generic"), StockDriver::Supported(_)), "{name}");
+            assert!(
+                matches!(
+                    inspect(root.path(), Path::new("/nonexistent"), "7.0.0-38-generic"),
+                    StockDriver::Supported(_)
+                ),
+                "{name}"
+            );
         }
     }
 
@@ -111,7 +125,10 @@ pub mod tests {
     fn missing_fix() {
         let root = tempfile::tempdir().unwrap();
         write_module(root.path(), "6.14.0-37-generic", "btusb.ko.zst", &module_bytes(false));
-        assert!(matches!(inspect(root.path(), "6.14.0-37-generic"), StockDriver::Missing(_)));
+        assert!(matches!(
+            inspect(root.path(), Path::new("/nonexistent"), "6.14.0-37-generic"),
+            StockDriver::Missing(_)
+        ));
     }
 
     #[test]
@@ -123,9 +140,23 @@ pub mod tests {
     }
 
     #[test]
+    fn falls_back_to_dkms_original_module_backup() {
+        let root = tempfile::tempdir().unwrap();
+        let backup = root.path().join("dkms/bt-cm749/original_module/7.1.2-arch3-1/x86_64");
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(
+            backup.join("btusb.ko.zst"),
+            ruzstd::encoding::compress_to_vec(&module_bytes(true)[..], ruzstd::encoding::CompressionLevel::Fastest),
+        )
+        .unwrap();
+        let found = inspect(&root.path().join("modules"), &root.path().join("dkms"), "7.1.2-arch3-1");
+        assert_eq!(found, StockDriver::Supported(backup.join("btusb.ko.zst")));
+    }
+
+    #[test]
     fn no_module_is_unknown() {
         let root = tempfile::tempdir().unwrap();
-        assert!(matches!(inspect(root.path(), "7.1.2-arch3-1"), StockDriver::Unknown(_)));
+        assert!(matches!(inspect(root.path(), Path::new("/nonexistent"), "7.1.2-arch3-1"), StockDriver::Unknown(_)));
     }
 
     #[test]
@@ -134,12 +165,12 @@ pub mod tests {
         write_module(root.path(), "k", "btusb.ko.xz", b"x");
         let dir = root.path().join("k/kernel/drivers/bluetooth");
         fs::write(dir.join("btusb.ko.xz"), b"not xz").unwrap();
-        assert!(matches!(inspect(root.path(), "k"), StockDriver::Unknown(_)));
+        assert!(matches!(inspect(root.path(), Path::new("/nonexistent"), "k"), StockDriver::Unknown(_)));
     }
 
     #[test]
     fn real_modules_on_this_machine_do_not_crash() {
         let release = rustix::system::uname().release().to_string_lossy().into_owned();
-        let _ = inspect(Path::new("/usr/lib/modules"), &release);
+        let _ = inspect(Path::new("/usr/lib/modules"), Path::new("/var/lib/dkms"), &release);
     }
 }

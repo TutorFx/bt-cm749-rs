@@ -43,6 +43,25 @@ fn checks_the_target_kernel_not_another_one() {
 }
 
 #[test]
+fn suggests_removing_an_unneeded_installation() {
+    let sb = Sandbox::new(OS_ARCH, "7.1.2-arch3-1");
+    sb.mock_defaults();
+    std::fs::create_dir_all(sb.module_dir("0.2")).unwrap();
+    // The shell version's DKMS install moved the stock module into its backup dir.
+    let backup = sb.path("var/lib/dkms/bt-cm749/original_module/7.1.2-arch3-1/x86_64");
+    std::fs::create_dir_all(&backup).unwrap();
+    sb.stock_btusb("tmp", true);
+    std::fs::rename(sb.path("lib/modules/tmp/kernel/drivers/bluetooth/btusb.ko"), backup.join("btusb.ko")).unwrap();
+
+    sb.command(&["install"])
+        .assert()
+        .success()
+        .stdout(contains("Nothing to install"))
+        .stdout(contains("no longer needed: remove it with 'sudo bt-cm749 uninstall'"));
+    assert!(sb.calls().is_empty());
+}
+
+#[test]
 fn detect_reports_stock_status() {
     let sb = Sandbox::new(OS_UBUNTU, "7.0.0-38-generic");
     sb.stock_btusb("7.0.0-38-generic", true);

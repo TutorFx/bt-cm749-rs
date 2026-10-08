@@ -122,6 +122,7 @@ mod tests {
             usr_src: tmp.path().join("usr/src"),
             headers_root: tmp.path().into(),
             modules_root: tmp.path().into(),
+            dkms_root: tmp.path().into(),
             kernel_version: None,
             skip_root_check: true,
             cache_dir: None,

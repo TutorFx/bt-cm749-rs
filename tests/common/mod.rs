@@ -27,7 +27,7 @@ impl Sandbox {
             dir: tempfile::Builder::new().prefix("bt_test_sandbox_").tempdir().unwrap(),
             kernel: Some(kernel.into()),
         };
-        for d in ["mock_bin", "etc", "usr/src", "cache", "lib/modules"] {
+        for d in ["mock_bin", "etc", "usr/src", "cache", "lib/modules", "var/lib/dkms"] {
             fs::create_dir_all(sb.path(d)).unwrap();
         }
         fs::write(sb.path("etc/os-release"), os_release).unwrap();
@@ -90,6 +90,7 @@ impl Sandbox {
             ("CUSTOM_USR_SRC".into(), self.path("usr/src").display().to_string()),
             ("BT_CM749_CACHE_DIR".into(), self.path("cache").display().to_string()),
             ("BT_CM749_MODULES_ROOT".into(), self.path("lib/modules").display().to_string()),
+            ("BT_CM749_DKMS_ROOT".into(), self.path("var/lib/dkms").display().to_string()),
             ("SKIP_ROOT_CHECK".into(), "1".into()),
         ];
         if let Some(k) = &self.kernel {
