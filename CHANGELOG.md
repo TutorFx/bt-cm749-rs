@@ -14,9 +14,12 @@ The shell scripts (`setup_bt-cm749.sh`, `uninstall_bt-cm749.sh`, `dkms-module_*.
 - `os-release` parsing handles quoting and `ID_LIKE` lists, so Linux Mint, Manjaro, EndeavourOS and Nobara are detected.
 - The gcc ≥ 12 check runs before anything is written to `/usr/src` or DKMS.
 - Concurrent builds no longer race on the same tarball download (file lock).
+- The declared minimum Rust version is now 1.87, the oldest that builds the dependencies (`ruzstd` needs `is_multiple_of`), and CI checks it.
 - `SIGTERM` sent only to the installer now reaches the running child and triggers the rollback. The rollback is also tested with a real signal.
 
 ### Added
+- Interactive wizard, built with `cliclack` and shown when `bt-cm749` runs without a command in a terminal. It shows the distribution, the kernel, whether the adapter is plugged in and whether the kernel's own driver already has the fix, then offers only the actions that make sense. Each step runs behind a spinner, command output goes to `/var/log/bt-cm749.log`, and the end of the log is shown if something fails. After installing it reloads the driver and explains Secure Boot key enrollment when needed. Without a terminal, `bt-cm749` prints its usage and exits with code 2.
+- One-command installer (`install.sh`, published with every release) for non-technical users. It picks the binary for the processor, verifies its sha256 checksum, installs it to `/usr/local/bin` and opens the wizard. Without a terminal, or with `--force` / `--uninstall`, it runs the steps itself (a mode to be retired later).
 - `install` does nothing when the target kernel's stock `btusb` already supports the adapters. It detects the quirks-table entries and the continuation fix in the module (`.ko`, `.zst`, `.xz`, `.gz`), including DKMS's backup of a displaced stock module. This covers upstream kernels with the merged fix and distro backports such as Ubuntu 24.04's 6.8.0-146 and its HWE 6.17/7.0 kernels. `--force` overrides the check, and `detect` reports the result.
 - sha256 verification of kernel tarballs against kernel.org's `sha256sums.asc`. A partial download resumes, and the primary-to-CDN mirror fallback is kept.
 - Native unified-diff engine (offset + fuzz, idempotent), validated byte-for-byte against GNU patch. GNU patch is still used as a fallback, with a dry run first.
