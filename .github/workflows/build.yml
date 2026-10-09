@@ -1,0 +1,44 @@
+# Reusable: builds the static release binaries used by CI and by releases.
+name: Build
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: static binary (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    env:
+      TARGET: ${{ matrix.arch }}-unknown-linux-musl
+      ASSET: bt-cm749-${{ matrix.arch }}-linux-musl
+      # C dependencies (ring, liblzma) must be compiled against musl too.
+      TARGET_CC: musl-gcc
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ env.TARGET }}
+      - run: cargo build --release --locked --target "$TARGET"
+      - name: Check that the binary is static and runs
+        run: |
+          cp "target/$TARGET/release/bt-cm749" "$ASSET"
+          file "$ASSET" | tee /dev/stderr | grep -Eq 'statically linked|static-pie linked'
+          "./$ASSET" --version
+          sha256sum "$ASSET" > "$ASSET.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET }}
+          path: ${{ env.ASSET }}*
+          if-no-files-found: error
