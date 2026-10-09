@@ -7,6 +7,7 @@ use std::path::Path;
 use crate::context::{Context, LEGACY_MODULE_VERSIONS, MODULE_NAME, MODULE_VERSION, PATCH, PATCH_FILE, PREBUILD_BIN};
 use crate::error::{IoContext, Result};
 use crate::exec::{Cmd, Runner};
+use crate::say;
 
 /// `dkms.conf` for the module. `${kernelver}` is expanded by DKMS when it reads the
 /// file, so the PRE_BUILD step always targets the kernel being built (the shell
@@ -48,7 +49,7 @@ pub fn remove_legacy(ctx: &Context, runner: &dyn Runner) {
     for version in LEGACY_MODULE_VERSIONS {
         let dir = ctx.module_dir_for(version);
         if dir.exists() {
-            println!(" -> Removendo instalação legada {}...", module_ref(version));
+            say!(" -> Removendo instalação legada {}...", module_ref(version));
             remove(version, true, runner);
             let _ = fs::remove_dir_all(&dir);
         }
@@ -123,6 +124,7 @@ mod tests {
             headers_root: tmp.path().into(),
             modules_root: tmp.path().into(),
             dkms_root: tmp.path().into(),
+            sysfs_root: tmp.path().into(),
             kernel_version: None,
             skip_root_check: true,
             cache_dir: None,

@@ -2,16 +2,24 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [main, master]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  lint-test:
-    name: fmt, clippy, tests
-    runs-on: ubuntu-latest
+  test:
+    name: Lint and test
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -21,10 +29,21 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+      - name: Shellcheck the installer and CI scripts
+        run: shellcheck -S warning install.sh ci/*.sh
+
+  msrv:
+    name: Minimum Rust version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.87
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
 
   kernel-sources:
-    name: patch real kernel sources (network)
-    runs-on: ubuntu-latest
+    name: Patch real kernel sources
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -35,29 +54,13 @@ jobs:
           key: kernel-tarballs-v1
       - run: cargo test --locked --test kernel_sources patches_multiple_kernels -- --ignored
 
-  static:
-    name: static binary (${{ matrix.arch }})
-    strategy:
-      matrix:
-        include:
-          - { arch: x86_64, runner: ubuntu-latest }
-          - { arch: aarch64, runner: ubuntu-24.04-arm }
-    runs-on: ${{ matrix.runner }}
-    container: rust:1-alpine
-    steps:
-      - uses: actions/checkout@v4
-      - run: apk add --no-cache musl-dev make perl
-      - run: cargo build --release --locked --target ${{ matrix.arch }}-unknown-linux-musl
-      - run: cp target/${{ matrix.arch }}-unknown-linux-musl/release/bt-cm749 bt-cm749-${{ matrix.arch }}-linux-musl
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bt-cm749-${{ matrix.arch }}-linux-musl
-          path: bt-cm749-${{ matrix.arch }}-linux-musl
+  build:
+    uses: ./.github/workflows/build.yml
 
   dkms-e2e:
-    name: DKMS end-to-end on ${{ matrix.image }}
-    needs: static
-    runs-on: ubuntu-latest
+    name: DKMS end-to-end (${{ matrix.image }})
+    needs: build
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -70,3 +73,15 @@ jobs:
         with:
           name: bt-cm749-x86_64-linux-musl
       - run: chmod +x bt-cm749-x86_64-linux-musl && ci/dkms-e2e.sh "$PWD/bt-cm749-x86_64-linux-musl"
+
+  installer:
+    name: One-command installer
+    needs: build
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bt-cm749-x86_64-linux-musl
+      - run: ci/installer-test.sh "$PWD/bt-cm749-x86_64-linux-musl"

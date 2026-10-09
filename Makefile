@@ -30,12 +30,14 @@ static:
 		cp /target/x86_64-unknown-linux-musl/release/bt-cm749 /$(STATIC) && \
 		chown $(shell id -u):$(shell id -g) /$(STATIC)'
 
-# Real DKMS install/uninstall cycle in disposable containers
+# Real DKMS install/uninstall cycle and the one-command installer in disposable containers
 e2e: static
 	for img in archlinux:latest fedora:41 ubuntu:24.04; do \
 		docker run --rm -v "$(CURDIR)/dist":/bt:ro -v "$(CURDIR)/ci":/ci:ro $$img \
 			/ci/dkms-e2e.sh /bt/bt-cm749-x86_64-linux-musl || exit 1; \
 	done
+	docker run --rm -v "$(CURDIR)":/repo:ro -v "$(CURDIR)/dist":/bt:ro ubuntu:24.04 \
+		/repo/ci/installer-test.sh /bt/bt-cm749-x86_64-linux-musl
 
 install: build
 	sudo $(BIN) install

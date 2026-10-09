@@ -1,3 +1,5 @@
+# Push a tag such as v0.3.0 to publish a release. Users install it with the
+# one-line command from the README, which always fetches the latest release.
 name: Release
 
 on:
@@ -9,35 +11,44 @@ permissions:
 
 jobs:
   build:
-    name: static binary (${{ matrix.arch }})
-    strategy:
-      matrix:
-        include:
-          - { arch: x86_64, runner: ubuntu-latest }
-          - { arch: aarch64, runner: ubuntu-24.04-arm }
-    runs-on: ${{ matrix.runner }}
-    container: rust:1-alpine
-    steps:
-      - uses: actions/checkout@v4
-      - run: apk add --no-cache musl-dev make perl
-      - run: cargo build --release --locked --target ${{ matrix.arch }}-unknown-linux-musl
-      - run: |
-          name=bt-cm749-${{ matrix.arch }}-linux-musl
-          cp target/${{ matrix.arch }}-unknown-linux-musl/release/bt-cm749 "$name"
-          sha256sum "$name" > "$name.sha256"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bt-cm749-${{ matrix.arch }}
-          path: bt-cm749-${{ matrix.arch }}-linux-musl*
+    uses: ./.github/workflows/build.yml
 
   publish:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
+          path: dist
           merge-multiple: true
+      - name: Point the installer at this repository
+        run: sed "s|^REPO=.*|REPO=\"\${BT_CM749_REPO:-${GITHUB_REPOSITORY}}\"|" install.sh > dist/install.sh
+      - name: Write the release notes
+        run: |
+          cat > notes.md <<NOTES
+          ## Install
+
+          Open a terminal, paste this command and press Enter (it asks for your password):
+
+          \`\`\`
+          curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.sh | sudo sh
+          \`\`\`
+
+          The installer picks the right file for your computer, checks it and tells you what to do next.
+          If your Linux already supports the adapter, it changes nothing.
+
+          To remove it again:
+
+          \`\`\`
+          curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.sh | sudo sh -s -- --uninstall
+          \`\`\`
+
+          Manual install: download \`bt-cm749-x86_64-linux-musl\` (most PCs) or \`bt-cm749-aarch64-linux-musl\`
+          (ARM, e.g. Raspberry Pi), then run \`chmod +x\` on it and \`sudo ./bt-cm749-... install\`.
+          NOTES
       - uses: softprops/action-gh-release@v2
         with:
-          files: bt-cm749-*
+          files: dist/*
+          body_path: notes.md
           generate_release_notes: true
