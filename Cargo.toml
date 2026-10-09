@@ -3,7 +3,7 @@ name = "bt-cm749"
 version = "0.3.0"
 license-file = "LICENSE"
 description = "Installs a DKMS-patched btusb for Barrot BR8554 (UGREEN CM748/CM749) Bluetooth adapters"
-rust-version = "1.85"
+rust-version = "1.87"
 edition = "2024"
 
 [dependencies]
