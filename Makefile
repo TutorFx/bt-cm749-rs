@@ -32,7 +32,7 @@ static:
 
 # Real DKMS install/uninstall cycle in disposable containers
 e2e: static
-	for img in archlinux:latest fedora:41; do \
+	for img in archlinux:latest fedora:41 ubuntu:24.04; do \
 		docker run --rm -v "$(CURDIR)/dist":/bt:ro -v "$(CURDIR)/ci":/ci:ro $$img \
 			/ci/dkms-e2e.sh /bt/bt-cm749-x86_64-linux-musl || exit 1; \
 	done

@@ -61,13 +61,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { image: "archlinux:latest", experimental: false }
-          - { image: "fedora:41", experimental: false }
-          # Ubuntu's stable kernels backport Bluetooth API changes, so the vanilla
-          # kernel.org btusb.c does not build against their headers.
-          - { image: "ubuntu:24.04", experimental: true }
-    continue-on-error: ${{ matrix.experimental }}
+        # Ubuntu verifies the skip: its supported kernels already ship the fix.
+        image: ["archlinux:latest", "fedora:41", "ubuntu:24.04"]
     container: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v4
