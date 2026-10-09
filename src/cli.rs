@@ -1,18 +1,24 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
+
+use clap::{CommandFactory, Parser, Subcommand};
 
 use crate::context::Context;
 use crate::error::{IoContext, Result};
 use crate::exec::SystemRunner;
 use crate::os_release::Distro;
 use crate::stock::{self, StockDriver};
-use crate::{install, kernel, prebuild};
+use crate::{install, kernel, prebuild, wizard};
 
 /// Installs a DKMS-patched btusb driver for Barrot BR8554 based Bluetooth adapters
 /// (UGREEN CM748/CM749, USB 33fa:0010 / 33fa:0012).
 #[derive(Debug, Parser)]
-#[command(version, about)]
+#[command(
+    version,
+    about,
+    after_help = "Run `sudo bt-cm749` without a command in a terminal for an interactive wizard."
+)]
 pub struct Cli {
     /// os-release file used for distro detection [env: OS_RELEASE_FILE]
     #[arg(long, global = true, value_name = "PATH")]
@@ -31,7 +37,7 @@ pub struct Cli {
     pub skip_root_check: bool,
 
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -94,7 +100,15 @@ impl Cli {
 
 pub fn run(cli: Cli) -> Result<()> {
     let runner = SystemRunner;
-    match &cli.command {
+    let Some(command) = &cli.command else {
+        if interactive() {
+            return wizard::run(&cli.context(None));
+        }
+        // Scripts and pipes get the usage instead of prompts they cannot answer.
+        let _ = Cli::command().print_help();
+        std::process::exit(2);
+    };
+    match command {
         Command::Install { kernel, force } => {
             let exe = std::env::current_exe().ctx(|| "locating own executable".into())?;
             install::install(&cli.context(kernel.as_ref()), &exe, *force, &runner)
@@ -124,4 +138,9 @@ pub fn run(cli: Cli) -> Result<()> {
             prebuild::prebuild(&ctx, only, subdir, &cwd, &runner)
         }
     }
+}
+
+/// Prompts need a terminal to draw on (stderr) and to read keys from (/dev/tty).
+fn interactive() -> bool {
+    std::io::stderr().is_terminal() && std::fs::File::open("/dev/tty").is_ok()
 }

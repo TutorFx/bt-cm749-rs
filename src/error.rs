@@ -47,6 +47,10 @@ pub enum Error {
 
     #[error("{context}: {source}")]
     Io { context: String, source: io::Error },
+
+    /// A failure the interactive wizard has already explained on screen.
+    #[error("exit code {0}")]
+    Shown(i32),
 }
 
 impl Error {
@@ -59,6 +63,7 @@ impl Error {
             Error::CommandFailed { code, .. } => *code,
             Error::Spawn { .. } => 127,
             Error::Interrupted(sig) => 128 + sig,
+            Error::Shown(code) => *code,
         }
     }
 }

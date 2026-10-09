@@ -3,6 +3,7 @@
 use crate::error::{Error, Result};
 use crate::exec::{Cmd, Runner};
 use crate::os_release::Distro;
+use crate::say;
 
 /// Installs the build prerequisites (non-interactively, unlike the original scripts).
 pub fn install_prerequisites(distro: Distro, runner: &dyn Runner) -> Result<()> {
@@ -13,7 +14,7 @@ pub fn install_prerequisites(distro: Distro, runner: &dyn Runner) -> Result<()> 
         }
         Distro::Fedora => Cmd::new("dnf").args(["install", "-y", "dwarves", "dkms", "kernel-devel", "kernel-headers"]),
         Distro::Unknown => {
-            println!(
+            say!(
                 "Preparation steps not (yet) supported for your Linux distro. \
                  You might want to modify the distro-specific commands."
             );
@@ -32,10 +33,10 @@ pub fn ensure_headers(distro: Distro, kernel_release: &str, runner: &dyn Runner)
     if package_installed(&package, runner) {
         return Ok(());
     }
-    println!(
+    say!(
         "Please consider installing the package linux-headers-generic to auto-install kernel headers with every new kernel."
     );
-    println!("Installing {package} now.");
+    say!("Installing {package} now.");
     runner.run(&Cmd::new("apt").args(["update", "-y"]))?;
     runner.run(&Cmd::new("apt").args(["install", "-y", &package]))?;
     if package_installed(&package, runner) { Ok(()) } else { Err(Error::MissingHeaders(package)) }
