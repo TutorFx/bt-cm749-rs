@@ -17,6 +17,7 @@ The shell scripts (`setup_bt-cm749.sh`, `uninstall_bt-cm749.sh`, `dkms-module_*.
 - `SIGTERM` sent only to the installer now reaches the running child and triggers the rollback. The rollback is also tested with a real signal.
 
 ### Added
+- `install` does nothing when the target kernel's stock `btusb` already supports the adapters. It detects the quirks-table entries and the continuation fix in the module (`.ko`, `.zst`, `.xz`, `.gz`), including DKMS's backup of a displaced stock module. This covers upstream kernels with the merged fix and distro backports such as Ubuntu 24.04's 6.8.0-146 and its HWE 6.17/7.0 kernels. `--force` overrides the check, and `detect` reports the result.
 - sha256 verification of kernel tarballs against kernel.org's `sha256sums.asc`. A partial download resumes, and the primary-to-CDN mirror fallback is kept.
 - Native unified-diff engine (offset + fuzz, idempotent), validated byte-for-byte against GNU patch. GNU patch is still used as a fallback, with a dry run first.
 - Only `btusb.ko` is built (generated `Kbuild`), instead of every driver in `drivers/bluetooth`.
@@ -29,4 +30,4 @@ The shell scripts (`setup_bt-cm749.sh`, `uninstall_bt-cm749.sh`, `dkms-module_*.
   - real DKMS install/uninstall in Arch and Fedora containers.
 
 ### Known limitations
-- Ubuntu stable kernels backport Bluetooth core changes, so vanilla `btusb.c` does not compile against their headers. This was already the case with the shell version. See the README.
+- Ubuntu stable kernels backport Bluetooth core changes, so vanilla `btusb.c` does not compile against their headers. This was already the case with the shell version. Supported Ubuntu kernels already ship the fix, so the installer skips them. See the README.

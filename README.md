@@ -8,11 +8,13 @@ DKMS installer that fixes Bluetooth on Linux for UGREEN Bluetooth 5.4 USB adapte
 
 This is the Rust rewrite of the `bt-cm749-fix` shell scripts. It ships as a single static binary.
 
-Supported distros: Arch Linux (and derivatives), Fedora, and Debian/Ubuntu (with caveats, see [Known limitations](#known-limitations)). Supported kernels: 6.x and 7.x.
+Supported distros: Arch Linux (and derivatives), Fedora, and Debian/Ubuntu. Supported kernels: 6.x and 7.x.
+
+> **You may not need this at all.** The fix was merged upstream, so recent kernels already support these adapters out of the box. Distros have also backported it, for example Ubuntu 24.04's `6.8.0-146` and its 6.17/7.0 HWE kernels. Before installing anything, `bt-cm749 install` inspects your kernel's own `btusb` module. If the fix is already there, it says so and changes nothing. Run `bt-cm749 detect` to check without root.
 
 ## How it works
 
-`bt-cm749 install` registers a DKMS module that replaces the stock `btusb` driver. When DKMS builds the module for a kernel, including every future kernel you install (`AUTOINSTALL`), the following happens:
+`bt-cm749 install` first checks the stock `btusb.ko` of the target kernel. It looks in `/usr/lib/modules/<kver>/kernel/...`, or in DKMS's backup of it if a DKMS module displaced it. If the stock module already contains the Barrot device IDs and the event-continuation fix, it stops there; `--force` overrides this check. Otherwise it registers a DKMS module that replaces the stock `btusb` driver. When DKMS builds the module for a kernel, including every future kernel you install (`AUTOINSTALL`), the following happens:
 
 1. DKMS runs the binary's `prebuild` step, which downloads the matching upstream source from kernel.org.
 2. The download is verified against kernel.org's `sha256sums.asc` and cached in `/var/cache/dkms-kernel-src`.
@@ -73,6 +75,8 @@ This also removes leftovers of the former shell implementation (`bt-cm749/0.2`).
 | Flag | Environment variable | Default |
 |---|---|---|
 | `--kernel <release>` | `KERNEL_VERSION` | newest installed `linux-image-*` on Debian, else the running kernel |
+| `install --force` | | install even if the stock driver already has the fix |
+| `--modules-root <dir>` | `BT_CM749_MODULES_ROOT` | `/usr/lib/modules` |
 | `--os-release <path>` | `OS_RELEASE_FILE` | `/etc/os-release` |
 | `--usr-src <dir>` | `CUSTOM_USR_SRC` | `/usr/src` |
 | `--cache-dir <dir>` | `BT_CM749_CACHE_DIR` | `/var/cache/dkms-kernel-src`, else `/tmp/dkms-kernel-src` |
@@ -91,7 +95,7 @@ Exit codes:
 
 ## Known limitations
 
-- **Ubuntu stable kernels.** Ubuntu's kernels (for example `6.8.0-146-generic`) backport Bluetooth core changes from newer kernels, so the vanilla kernel.org `btusb.c` for 6.8 no longer compiles against their headers. The shell version had the same problem. On Ubuntu, the build fails and the installer rolls back cleanly. Supporting it needs the distro's own kernel source (the `linux-source` package).
+- **Ubuntu stable kernels.** Ubuntu's kernels backport Bluetooth core changes from newer kernels, so the vanilla kernel.org `btusb.c` no longer compiles against their headers. In practice this doesn't matter: every supported Ubuntu 24.04 kernel (6.8.0-146, HWE 6.17 and 7.0) already ships the fix, so the installer skips. Only the end-of-life HWE kernels 6.11 and 6.14 lack it; upgrade the kernel instead.
 - Fedora's DKMS installs modules to `extra/` instead of `updates/dkms`. `depmod` still prefers them over the built-in driver.
 
 ## Development
@@ -102,7 +106,8 @@ make lint        # rustfmt + clippy
 make test-all    # also downloads kernel sources, compiles btusb.ko against the
                  # running kernel's headers and checks parity with the shell scripts
 make static      # static musl binary in dist/ (built in an Alpine container)
-make e2e         # real DKMS install/uninstall in Arch and Fedora containers
+make e2e         # real DKMS install/uninstall in Arch and Fedora containers,
+                 # and the stock-driver skip on Ubuntu 24.04
 ```
 
 Integration tests run the binary with a `PATH` that contains only logging mocks, so no real `dkms`, `modprobe` or package manager is ever invoked. The patch engine is checked against GNU patch output on real `btusb.c` sources from 6.6, 6.12, 7.1 and 7.2 (`tests/fixtures/`).
