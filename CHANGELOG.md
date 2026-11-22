@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Fix for a firmware hang during LE scans.** Seen on `33fa:0010` with kernel 7.2.11. When the kernel disables an LE scan on the LE Coded PHY, the firmware sometimes never answers (`command 0x2042 tx timeout`). It then answers *Memory Capacity Exceeded* to every command, `HCI_Reset` included, until the adapter is unplugged; a restart does not recover it. A second patch, `assets/btusb-barrot-le-coded.patch`, sets `HCI_QUIRK_BROKEN_LE_CODED` for the Barrot IDs, so the kernel scans on LE 1M only. The patch handles both quirk APIs (`set_bit` before 6.16, `hci_set_quirk` from then on) and compiles to nothing before 6.6, which lacks the quirk. It logs `Barrot: LE Coded PHY disabled to avoid a firmware hang` when the adapter is probed. With the stock driver, the GNOME Settings Bluetooth page hung the adapter on its first scan cycle. With the fix, 42 cycles passed, including with devices connected and across a suspend and resume.
+- The wizard offers to update an installation that predates this fix ("Update the fix").
+
+### Changed
+- `install` now also installs on kernels whose stock `btusb` supports the adapters but lacks the LE Coded PHY fix, which today is every kernel. The exception is Ubuntu and its derivatives, where the vanilla `btusb.c` does not build: there `install` still changes nothing, and explains why. The stock driver check reports this case separately (`StockDriver::Partial`), and so do `detect` and the wizard.
+
+### Documentation
+- README: new troubleshooting section, "Bluetooth works for a few seconds, then stops". It covers the symptoms, recovery, the fix, and the `ControllerMode = bredr` workaround for Ubuntu. It also records that `BTUSB_BROKEN_EXT_SCAN` is not a workaround, because the firmware rejects the legacy scan commands with *Command Disallowed*.
+- README: issue reports should include the kernel's Bluetooth log.
+
 ## 0.3.0 — Rust rewrite
 
 The shell scripts (`setup_bt-cm749.sh`, `uninstall_bt-cm749.sh`, `dkms-module_*.sh`, `kernel-*.sh`) are replaced by a single static binary, `bt-cm749`, with the subcommands `install`, `uninstall`, `detect` and the internal `prebuild`. The DKMS module is now registered as `bt-cm749/0.3`. `install` and `uninstall` remove the `bt-cm749/0.2` registrations left by the shell version.
