@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — Fix for the firmware hang during LE scans
 
 ### Added
 - **Fix for a firmware hang during LE scans.** Seen on `33fa:0010` with kernel 7.2.11. When the kernel disables an LE scan on the LE Coded PHY, the firmware sometimes never answers (`command 0x2042 tx timeout`). It then answers *Memory Capacity Exceeded* to every command, `HCI_Reset` included, until the adapter is unplugged; a restart does not recover it. A second patch, `assets/btusb-barrot-le-coded.patch`, sets `HCI_QUIRK_BROKEN_LE_CODED` for the Barrot IDs, so the kernel scans on LE 1M only. The patch handles both quirk APIs (`set_bit` before 6.16, `hci_set_quirk` from then on) and compiles to nothing before 6.6, which lacks the quirk. It logs `Barrot: LE Coded PHY disabled to avoid a firmware hang` when the adapter is probed. With the stock driver, the GNOME Settings Bluetooth page hung the adapter on its first scan cycle. With the fix, 42 cycles passed, including with devices connected and across a suspend and resume.
