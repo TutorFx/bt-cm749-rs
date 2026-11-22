@@ -8,7 +8,14 @@ pub const LEGACY_MODULE_VERSIONS: &[&str] = &["0.2"];
 /// Name of the binary copied into the DKMS source tree and invoked as PRE_BUILD.
 pub const PREBUILD_BIN: &str = "bt-cm749";
 pub const PATCH_FILE: &str = "bt-cm749.patch";
+/// Upstream Barrot commit: device IDs and event-continuation handling.
 pub const PATCH: &str = include_str!("../assets/bt-cm749.patch");
+pub const LE_CODED_PATCH_FILE: &str = "btusb-barrot-le-coded.patch";
+/// Keeps Barrot adapters off the LE Coded PHY, whose scans hang their firmware.
+pub const LE_CODED_PATCH: &str = include_str!("../assets/btusb-barrot-le-coded.patch");
+/// Patches written to the DKMS source tree. PRE_BUILD applies every `*.patch` there
+/// in name order, which is also the order of this list.
+pub const PATCHES: [(&str, &str); 2] = [(PATCH_FILE, PATCH), (LE_CODED_PATCH_FILE, LE_CODED_PATCH)];
 
 /// Runtime configuration. Defaults point at the real system; the environment
 /// variables honoured by the original scripts (OS_RELEASE_FILE, CUSTOM_USR_SRC,
@@ -54,5 +61,10 @@ impl Context {
 
     pub fn module_dir_for(&self, version: &str) -> PathBuf {
         self.usr_src.join(format!("{MODULE_NAME}-{version}"))
+    }
+
+    /// Whether a bt-cm749 DKMS source tree exists, current or from the shell version.
+    pub fn has_installation(&self) -> bool {
+        self.module_dir().exists() || LEGACY_MODULE_VERSIONS.iter().any(|v| self.module_dir_for(v).exists())
     }
 }
