@@ -64,7 +64,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Ubuntu verifies the skip: its supported kernels already ship the fix.
+        # Ubuntu verifies the skip: its kernels already support the adapters, and the
+        # LE Coded PHY fix cannot be built for them.
         image: ["archlinux:latest", "fedora:41", "ubuntu:24.04"]
     container: ${{ matrix.image }}
     steps:

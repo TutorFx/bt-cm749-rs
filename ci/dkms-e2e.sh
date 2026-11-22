@@ -2,8 +2,9 @@
 # Real DKMS install -> verify -> reinstall -> uninstall cycle, run as root inside a
 # disposable distro container:  ci/dkms-e2e.sh <path to bt-cm749 binary>
 #
-# On Debian/Ubuntu the kernel's own modules are installed too; their btusb already
-# carries the Barrot fix, so the expected outcome there is a verified skip.
+# On Ubuntu the kernel's own modules are installed too. Their btusb already supports
+# the adapters, and the vanilla btusb.c does not build against Ubuntu's headers, so
+# the expected outcome there is a verified skip.
 set -euo pipefail
 
 BIN=${1:?usage: $0 <bt-cm749 binary>}
@@ -13,7 +14,7 @@ echo "### distro: ${PRETTY_NAME}"
 case "${ID}" in
   arch)
     pacman -Syu --noconfirm --needed pahole dkms base-devel linux-headers zstd >/dev/null ;;
-  ubuntu|debian)
+  ubuntu)
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq && apt-get install -y -qq linux-headers-generic build-essential dkms dwarves kmod zstd >/dev/null
     kv=$(ls /usr/lib/modules | sort -V | tail -1)
@@ -34,12 +35,12 @@ echo "### kernel headers: ${KV}"
 
 "${BIN}" detect | sed 's/^/    /'
 
-if [ "${ID}" = ubuntu ] || [ "${ID}" = debian ]; then
+if [ "${ID}" = ubuntu ]; then
   "${BIN}" install > /tmp/install.log 2>&1 || { echo "### install FAILED"; tail -20 /tmp/install.log; exit 1; }
   grep -q "Nothing to install" /tmp/install.log
   test -z "$(dkms status)"
   test ! -e /usr/src/bt-cm749-0.3
-  echo "### stock btusb already fixed: install skipped without side effects"
+  echo "### stock btusb already supports the adapters: install skipped without side effects"
   echo "### E2E PASSED"
   exit 0
 fi
@@ -59,10 +60,17 @@ find_dkms_btusb() { find "/usr/lib/modules/${KV}" \( -path '*/updates/*' -o -pat
 MODULE=$(find_dkms_btusb | head -1)
 test -n "${MODULE}"
 echo "### module: ${MODULE}"
-case "${MODULE}" in
-  *.zst) zstd -qdc "${MODULE}" ;; *.xz) xz -dc "${MODULE}" ;; *) cat "${MODULE}" ;;
-esac | grep -a "Unexpected continuation" >/dev/null  # no -q: it would SIGPIPE the producer under pipefail
+module_bytes() {
+  case "${MODULE}" in
+    *.zst) zstd -qdc "${MODULE}" ;; *.xz) xz -dc "${MODULE}" ;; *) cat "${MODULE}" ;;
+  esac
+}
+# No grep -q: it would SIGPIPE the producer under pipefail.
+module_bytes | grep -a "Unexpected continuation" >/dev/null
 echo "### module contains the Barrot continuation handler"
+# Fails if the LE Coded PHY patch was skipped or compiled to nothing (kernels before 6.6).
+module_bytes | grep -a "Barrot: LE Coded PHY disabled" >/dev/null
+echo "### module contains the LE Coded PHY workaround"
 
 "${BIN}" install --force > /tmp/install2.log 2>&1 || { echo "### reinstall FAILED"; tail -20 /tmp/install2.log; exit 1; }
 echo "### reinstall OK"

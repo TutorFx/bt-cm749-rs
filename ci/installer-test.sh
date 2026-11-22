@@ -2,8 +2,9 @@
 # Exercises install.sh the way a user runs it, inside a disposable Ubuntu 24.04
 # container, against locally served release files:
 #   ci/installer-test.sh <path to bt-cm749-x86_64-linux-musl>
-# Covers a corrupted download, the "kernel already has the fix" path (Ubuntu's
-# own btusb ships it) and uninstallation.
+# Covers a corrupted download, the "nothing to install" path (Ubuntu's own btusb
+# supports the adapters, and the LE Coded PHY fix cannot be built for its kernels)
+# and uninstallation.
 set -euo pipefail
 
 BIN=${1:?usage: $0 <bt-cm749 binary>}
@@ -30,7 +31,7 @@ if BT_CM749_BASE_URL="file://${REL}/bad" sh "${ROOT}/install.sh"; then
 fi
 test ! -e /usr/local/bin/bt-cm749
 
-echo "### install on a kernel that already has the fix"
+echo "### install on a kernel that already supports the adapters"
 BT_CM749_BASE_URL="file://${REL}/good" sh "${ROOT}/install.sh" | tee /tmp/install.log
 grep -q "nothing had to be installed" /tmp/install.log
 test -x /usr/local/bin/bt-cm749
