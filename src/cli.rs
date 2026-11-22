@@ -7,7 +7,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use crate::context::Context;
 use crate::error::{IoContext, Result};
 use crate::exec::SystemRunner;
-use crate::os_release::Distro;
+use crate::os_release::{self, Distro};
 use crate::stock::{self, StockDriver};
 use crate::{install, kernel, prebuild, wizard};
 
@@ -123,8 +123,17 @@ pub fn run(cli: Cli) -> Result<()> {
             println!("Upstream tarball: linux-{}.tar.xz", kv.source_version());
             match stock::inspect(&ctx.modules_root, &ctx.dkms_root, &kv.release) {
                 StockDriver::Supported(p) => {
-                    println!("Stock btusb: already supports 33fa:0010/0012 ({}); install not needed", p.display())
+                    println!("Stock btusb: already has every Barrot fix ({}); install not needed", p.display())
                 }
+                StockDriver::Partial(p) if os_release::is_ubuntu_based(&ctx.os_release_file) => println!(
+                    "Stock btusb: supports 33fa:0010/0012 but lacks the LE scan hang fix ({}), \
+                     which cannot be built for Ubuntu kernels; install not possible",
+                    p.display()
+                ),
+                StockDriver::Partial(p) => println!(
+                    "Stock btusb: supports 33fa:0010/0012 but lacks the LE scan hang fix ({}); install recommended",
+                    p.display()
+                ),
                 StockDriver::Missing(p) => {
                     println!("Stock btusb: lacks the Barrot fix ({}); install needed", p.display())
                 }

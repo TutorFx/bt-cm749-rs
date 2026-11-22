@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use cliclack::{ProgressBar, intro, log, note, outro, outro_cancel, select, spinner};
 use console::style;
 
-use crate::context::{Context, LEGACY_MODULE_VERSIONS};
+use crate::context::{Context, LE_CODED_PATCH_FILE};
 use crate::error::{Error, IoContext, Result};
 use crate::exec::{Cmd, LoggingRunner, Runner, SystemRunner};
 use crate::os_release::{self, Distro};
@@ -34,10 +34,15 @@ pub enum Action {
 /// What the menu is based on.
 #[derive(Debug, Clone, Copy)]
 pub struct State {
-    /// Whether the kernel's own btusb has the fix (`None`: could not tell).
+    /// Whether the kernel's own btusb needs nothing from us (`None`: could not tell).
     pub stock_fixed: Option<bool>,
     /// Whether a bt-cm749 DKMS installation (current or legacy) exists.
     pub installed: bool,
+    /// Whether that installation predates the LE scan hang fix.
+    pub outdated: bool,
+    /// Whether the module is expected to build: not on Ubuntu kernels, whose headers
+    /// differ from the kernel.org source.
+    pub buildable: bool,
 }
 
 /// Menu entries (action, label, hint) and the preselected action.
@@ -51,6 +56,14 @@ pub fn choices(state: State) -> (Vec<(Action, &'static str, &'static str)>, Acti
             ],
             Action::Uninstall,
         ),
+        (true, _) if state.outdated => (
+            vec![
+                (Action::Reinstall, "Update the fix", "recommended: adds the fix for the LE scan hang"),
+                (Action::Exit, "Exit", "keep the installed version"),
+                (Action::Uninstall, "Remove the fix", "go back to your distribution's driver"),
+            ],
+            Action::Reinstall,
+        ),
         (true, _) => (
             vec![
                 (Action::Exit, "Exit", "the fix is installed; keep it"),
@@ -62,7 +75,11 @@ pub fn choices(state: State) -> (Vec<(Action, &'static str, &'static str)>, Acti
         (false, Some(true)) => (
             vec![
                 (Action::Exit, "Exit", "nothing to do: your kernel already supports the adapter"),
-                (Action::Install, "Install anyway", "not needed"),
+                (
+                    Action::Install,
+                    "Install anyway",
+                    if state.buildable { "not needed" } else { "not needed, and may not build on Ubuntu kernels" },
+                ),
             ],
             Action::Exit,
         ),
@@ -162,20 +179,30 @@ pub fn run(ctx: &Context) -> Result<()> {
     };
     let stock = stock::inspect(&ctx.modules_root, &ctx.dkms_root, &kv.release);
     let adapter = find_adapter(&ctx.sysfs_root);
-    let installed = ctx.module_dir().exists() || LEGACY_MODULE_VERSIONS.iter().any(|v| ctx.module_dir_for(v).exists());
+    let installed = ctx.has_installation();
+    let outdated = installed && !ctx.module_dir().join(LE_CODED_PATCH_FILE).exists();
+    let ubuntu = os_release::is_ubuntu_based(&ctx.os_release_file);
 
     let stock_line = match &stock {
-        StockDriver::Supported(_) => "already supports the adapter".to_string(),
-        StockDriver::Missing(_) => "lacks the fix".to_string(),
-        StockDriver::Unknown(_) => "could not be checked".to_string(),
+        StockDriver::Supported(_) => "already has every fix",
+        StockDriver::Partial(_) if ubuntu => {
+            "supports the adapter (the LE scan hang fix cannot be built for Ubuntu kernels)"
+        }
+        StockDriver::Partial(_) => "supports the adapter, but lacks the LE scan hang fix",
+        StockDriver::Missing(_) => "lacks the fix",
+        StockDriver::Unknown(_) => "could not be checked",
+    };
+    let installed_line = match (installed, outdated) {
+        (false, _) => "not installed",
+        (true, true) => "installed, without the LE scan hang fix",
+        (true, false) => "installed",
     };
     note(
         "Your system",
         format!(
-            "Distribution:   {pretty}\nKernel:         {}\nAdapter:        {}\nKernel driver:  {stock_line}\nbt-cm749 fix:   {}",
+            "Distribution:   {pretty}\nKernel:         {}\nAdapter:        {}\nKernel driver:  {stock_line}\nbt-cm749 fix:   {installed_line}",
             kv.release,
             adapter.as_deref().map_or("not plugged in".to_string(), |id| format!("{id} plugged in")),
-            if installed { "installed" } else { "not installed" },
         ),
     )
     .map_err(ui_err)?;
@@ -187,10 +214,14 @@ pub fn run(ctx: &Context) -> Result<()> {
     let state = State {
         stock_fixed: match stock {
             StockDriver::Supported(_) => Some(true),
+            // Nothing more can be built on Ubuntu kernels.
+            StockDriver::Partial(_) => Some(ubuntu),
             StockDriver::Missing(_) => Some(false),
             StockDriver::Unknown(_) => None,
         },
         installed,
+        outdated,
+        buildable: !ubuntu,
     };
     let (items, default) = choices(state);
     let action = match select("What do you want to do?").items(&items).initial_value(default).interact() {
@@ -317,23 +348,41 @@ mod tests {
     use super::*;
 
     fn state(stock_fixed: Option<bool>, installed: bool) -> State {
-        State { stock_fixed, installed }
+        State { stock_fixed, installed, outdated: false, buildable: true }
     }
 
     #[test]
     fn menu_follows_the_situation() {
+        let outdated = |stock_fixed| State { stock_fixed, installed: true, outdated: true, buildable: true };
         let cases = [
             (state(Some(false), false), Action::Install, vec![Action::Install, Action::Exit]),
             (state(None, false), Action::Install, vec![Action::Install, Action::Exit]),
             (state(Some(true), false), Action::Exit, vec![Action::Exit, Action::Install]),
             (state(Some(true), true), Action::Uninstall, vec![Action::Uninstall, Action::Reinstall, Action::Exit]),
             (state(Some(false), true), Action::Exit, vec![Action::Exit, Action::Reinstall, Action::Uninstall]),
+            (outdated(Some(false)), Action::Reinstall, vec![Action::Reinstall, Action::Exit, Action::Uninstall]),
+            (outdated(None), Action::Reinstall, vec![Action::Reinstall, Action::Exit, Action::Uninstall]),
+            // A kernel that needs nothing still suggests removing the fix, outdated or not.
+            (outdated(Some(true)), Action::Uninstall, vec![Action::Uninstall, Action::Reinstall, Action::Exit]),
         ];
         for (st, default, actions) in cases {
             let (items, preselected) = choices(st);
             assert_eq!(preselected, default, "{st:?}");
             assert_eq!(items.iter().map(|i| i.0).collect::<Vec<_>>(), actions, "{st:?}");
         }
+    }
+
+    /// "Install anyway" stays available on Ubuntu (it works with a mainline kernel),
+    /// but says that the build may fail.
+    #[test]
+    fn install_anyway_warns_where_the_module_may_not_build() {
+        let hint = |buildable| {
+            let st = State { stock_fixed: Some(true), installed: false, outdated: false, buildable };
+            let (items, _) = choices(st);
+            items.into_iter().find(|i| i.0 == Action::Install).unwrap().2
+        };
+        assert_eq!(hint(true), "not needed");
+        assert!(hint(false).contains("may not build on Ubuntu kernels"));
     }
 
     #[test]

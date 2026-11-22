@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::context::{Context, LEGACY_MODULE_VERSIONS, MODULE_NAME, MODULE_VERSION};
 use crate::error::{Error, IoContext, Result};
 use crate::exec::{Cmd, Runner};
-use crate::os_release::Distro;
+use crate::os_release::{self, Distro};
 use crate::stock::{self, StockDriver};
 use crate::{distro, dkms, kernel, say, signals, source};
 
@@ -18,7 +18,8 @@ pub fn check_root(ctx: &Context, action: &'static str) -> Result<()> {
 
 /// Installs the module; any failure or SIGINT/SIGTERM rolls the system back and the
 /// original error (and exit code) is returned. Unless `force` is set, nothing is
-/// installed when the kernel's stock btusb already supports the adapters.
+/// installed when the kernel's stock btusb already has every fix, or when it supports
+/// the adapters on an Ubuntu kernel, where the module cannot be built.
 pub fn install(ctx: &Context, prebuild_bin: &Path, force: bool, runner: &dyn Runner) -> Result<()> {
     check_root(ctx, "setup")?;
     signals::install().ctx(|| "installing signal handlers".into())?;
@@ -33,7 +34,8 @@ fn install_steps(ctx: &Context, prebuild_bin: &Path, force: bool, runner: &dyn R
     let distro = Distro::detect(&ctx.os_release_file);
     let kv = kernel::detect(ctx.kernel_version.as_deref(), distro, &ctx.headers_root, runner)?;
     say!("{}", kv.describe());
-    match stock::inspect(&ctx.modules_root, &ctx.dkms_root, &kv.release) {
+    let stock = stock::inspect(&ctx.modules_root, &ctx.dkms_root, &kv.release);
+    match &stock {
         StockDriver::Supported(path) if !force => {
             say!(
                 "The stock btusb driver of kernel {} ({}) already supports 33fa:0010 / 33fa:0012.\n\
@@ -41,19 +43,34 @@ fn install_steps(ctx: &Context, prebuild_bin: &Path, force: bool, runner: &dyn R
                 kv.release,
                 path.display()
             );
-            if ctx.module_dir().exists() || LEGACY_MODULE_VERSIONS.iter().any(|v| ctx.module_dir_for(v).exists()) {
-                say!(
-                    "An existing {MODULE_NAME} DKMS installation is no longer needed: remove it with 'sudo bt-cm749 uninstall'."
-                );
-            }
+            hint_unneeded_installation(ctx);
+            return Ok(());
+        }
+        StockDriver::Partial(path) if !force && os_release::is_ubuntu_based(&ctx.os_release_file) => {
+            say!(
+                "The stock btusb driver of kernel {} ({}) already supports 33fa:0010 / 33fa:0012,\n\
+                 but lacks the fix for the firmware hang during LE scans, which cannot be built for Ubuntu kernels.\n\
+                 Nothing to install. If Bluetooth stops working a few seconds after it turns on, see\n\
+                 \"Bluetooth works for a few seconds, then stops\" in the README.\n\
+                 Use --force to build the DKMS module anyway, for example on a mainline kernel.",
+                kv.release,
+                path.display()
+            );
+            hint_unneeded_installation(ctx);
             return Ok(());
         }
         StockDriver::Supported(_) => say!("Stock btusb already has the fix; installing anyway (--force)."),
+        StockDriver::Partial(path) => say!(
+            "Stock btusb ({}) supports the adapters but lacks the fix for the firmware hang during LE scans.",
+            path.display()
+        ),
         StockDriver::Missing(path) => say!("Stock btusb ({}) lacks the Barrot fix.", path.display()),
         StockDriver::Unknown(reason) => say!("Could not inspect the stock btusb driver ({reason}); proceeding."),
     }
     say!("Setting up {MODULE_NAME} (v{MODULE_VERSION}) for kernel {}...", kv.release);
-    if kv.is_recent() {
+    // The stock driver of these kernels may already support the adapters; then the
+    // module is installed for the LE scan fix, as reported above.
+    if kv.is_recent() && !matches!(stock, StockDriver::Supported(_) | StockDriver::Partial(_)) {
         say!("Note: Kernel {} detected. Applying DKMS fix to ensure device 33fa:0010 / 33fa:0012 support.", kv.release);
     }
 
@@ -77,6 +94,15 @@ fn install_steps(ctx: &Context, prebuild_bin: &Path, force: bool, runner: &dyn R
          Check status anytime with 'sudo dkms status'."
     );
     check_interrupted()
+}
+
+/// Tells the user about a DKMS installation that the skipped install leaves behind.
+fn hint_unneeded_installation(ctx: &Context) {
+    if ctx.has_installation() {
+        say!(
+            "An existing {MODULE_NAME} DKMS installation is no longer needed: remove it with 'sudo bt-cm749 uninstall'."
+        );
+    }
 }
 
 fn check_interrupted() -> Result<()> {

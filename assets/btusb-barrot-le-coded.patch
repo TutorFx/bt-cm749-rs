@@ -1,0 +1,29 @@
+--- a/drivers/bluetooth/btusb.c
++++ b/drivers/bluetooth/btusb.c
+@@ -12,4 +12,5 @@
+ #include <linux/usb.h>
+ #include <linux/usb/quirks.h>
++#include <linux/version.h>
+ #include <linux/firmware.h>
+ #include <linux/iopoll.h>
+@@ -4531,4 +4532,20 @@
+ 	data->poll_sync = enable_poll_sync;
+ 
++	/* Barrot firmware sometimes never answers LE Set Extended Scan Enable
++	 * when an active scan that includes the LE Coded PHY is disabled, and
++	 * then fails every command with Memory Capacity Exceeded until the
++	 * adapter loses power. Scanning on the LE 1M PHY only avoids it.
++	 */
++	if (id->driver_info & BTUSB_BARROT) {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0)
++#ifdef hci_set_quirk
++		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_LE_CODED);
++#else
++		set_bit(HCI_QUIRK_BROKEN_LE_CODED, &hdev->quirks);
++#endif
++		dev_info(&intf->dev, "Barrot: LE Coded PHY disabled to avoid a firmware hang\n");
++#endif
++	}
++
+ 	err = hci_register_dev(hdev);
+ 	if (err < 0)

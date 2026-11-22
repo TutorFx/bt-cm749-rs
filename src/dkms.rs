@@ -4,7 +4,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use crate::context::{Context, LEGACY_MODULE_VERSIONS, MODULE_NAME, MODULE_VERSION, PATCH, PATCH_FILE, PREBUILD_BIN};
+use crate::context::{Context, LEGACY_MODULE_VERSIONS, MODULE_NAME, MODULE_VERSION, PATCHES, PREBUILD_BIN};
 use crate::error::{IoContext, Result};
 use crate::exec::{Cmd, Runner};
 use crate::say;
@@ -56,7 +56,7 @@ pub fn remove_legacy(ctx: &Context, runner: &dyn Runner) {
     }
 }
 
-/// Creates `/usr/src/bt-cm749-<ver>` with dkms.conf, the patch and the PRE_BUILD binary.
+/// Creates `/usr/src/bt-cm749-<ver>` with dkms.conf, the patches and the PRE_BUILD binary.
 pub fn create_source_tree(ctx: &Context, cc: Option<&str>, prebuild_bin: &Path, runner: &dyn Runner) -> Result<()> {
     remove(MODULE_VERSION, false, runner);
     let dir = ctx.module_dir();
@@ -66,7 +66,9 @@ pub fn create_source_tree(ctx: &Context, cc: Option<&str>, prebuild_bin: &Path, 
         fs::write(&path, content).ctx(|| format!("writing {}", path.display()))
     };
     write("dkms.conf", &render_conf(cc))?;
-    write(PATCH_FILE, PATCH)?;
+    for (name, content) in PATCHES {
+        write(name, content)?;
+    }
     let bin = dir.join(PREBUILD_BIN);
     fs::copy(prebuild_bin, &bin).ctx(|| format!("copying {} to {}", prebuild_bin.display(), bin.display()))?;
     fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).ctx(|| format!("chmod {}", bin.display()))
@@ -133,11 +135,24 @@ mod tests {
         create_source_tree(&ctx, None, &fake_bin, &r).unwrap();
 
         let dir = tmp.path().join("usr/src/bt-cm749-0.3");
-        assert_eq!(fs::read_to_string(dir.join("bt-cm749.patch")).unwrap(), PATCH);
+        assert_eq!(fs::read_to_string(dir.join("bt-cm749.patch")).unwrap(), crate::context::PATCH);
+        assert_eq!(
+            fs::read_to_string(dir.join("btusb-barrot-le-coded.patch")).unwrap(),
+            crate::context::LE_CODED_PATCH
+        );
         assert!(fs::read_to_string(dir.join("dkms.conf")).unwrap().contains("PACKAGE_VERSION=\"0.3\""));
         let mode = fs::metadata(dir.join("bt-cm749")).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o755);
         assert_eq!(r.calls(), ["dkms remove bt-cm749/0.3 --all"]);
+    }
+
+    /// PRE_BUILD applies the `*.patch` files in name order: keep the list in that order.
+    #[test]
+    fn patches_are_listed_in_the_order_prebuild_applies_them() {
+        let names: Vec<&str> = PATCHES.iter().map(|(name, _)| *name).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(names, sorted);
     }
 
     #[test]
