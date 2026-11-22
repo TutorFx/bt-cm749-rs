@@ -36,6 +36,18 @@ impl Distro {
     }
 }
 
+/// Whether `os-release` describes Ubuntu or a derivative (Mint, Pop!_OS, ...). Their
+/// kernels backport Bluetooth core changes, so the vanilla kernel.org `btusb.c` does not
+/// build against their headers.
+pub fn is_ubuntu_based(os_release: &Path) -> bool {
+    fs::read_to_string(os_release).is_ok_and(|s| names_ubuntu(&s))
+}
+
+fn names_ubuntu(content: &str) -> bool {
+    let vars = parse(content);
+    vars.get("ID").into_iter().chain(vars.get("ID_LIKE")).flat_map(|v| v.split_whitespace()).any(|id| id == "ubuntu")
+}
+
 /// Parses `KEY=value` lines per os-release(5): comments, blank lines and single or
 /// double quoting (with backslash escapes inside double quotes).
 pub fn parse(content: &str) -> HashMap<String, String> {
@@ -101,5 +113,22 @@ mod tests {
     #[test]
     fn missing_file_is_unknown() {
         assert_eq!(Distro::detect(Path::new("/nonexistent/os-release")), Distro::Unknown);
+    }
+
+    #[test]
+    fn recognises_ubuntu_and_derivatives() {
+        let cases = [
+            ("ID=ubuntu\nID_LIKE=debian\n", true),
+            ("ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n", true),
+            ("ID=pop\nID_LIKE=\"ubuntu debian\"\n", true),
+            ("ID=debian\n", false),
+            ("ID=arch\n", false),
+            ("ID=fedora\n", false),
+            ("", false),
+        ];
+        for (content, expected) in cases {
+            assert_eq!(names_ubuntu(content), expected, "{content:?}");
+        }
+        assert!(!is_ubuntu_based(Path::new("/nonexistent/os-release")));
     }
 }

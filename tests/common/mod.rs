@@ -16,6 +16,19 @@ pub const OS_UBUNTU: &str =
     "NAME=\"Ubuntu\"\nVERSION=\"24.04 LTS (Noble Numbat)\"\nID=ubuntu\nID_LIKE=debian\nVERSION_ID=\"24.04\"\n";
 pub const OS_FEDORA: &str = "NAME=\"Fedora Linux\"\nVERSION=\"41 (Workstation Edition)\"\nID=fedora\nVERSION_ID=41\n";
 
+/// Which fixes a fake stock `btusb.ko` carries.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+pub enum Stock {
+    /// No Barrot support (kernels before 6.18).
+    Unfixed,
+    /// Adapter support from upstream, without the LE Coded PHY workaround (every
+    /// current kernel).
+    Adapters,
+    /// Adapter support and the LE Coded PHY workaround: nothing to install.
+    Fixed,
+}
+
 pub struct Sandbox {
     pub dir: TempDir,
     kernel: Option<String>,
@@ -99,15 +112,19 @@ impl Sandbox {
         env
     }
 
-    /// Places an uncompressed stock `btusb.ko` for `release`, with or without the
-    /// Barrot fix markers (quirks-table entries and the continuation warning).
-    pub fn stock_btusb(&self, release: &str, fixed: bool) -> &Self {
+    /// Places an uncompressed stock `btusb.ko` for `release` carrying the markers of
+    /// `stock`: quirks-table entries and the continuation warning for adapter support,
+    /// plus the LE Coded PHY workaround's message for a fully fixed driver.
+    pub fn stock_btusb(&self, release: &str, stock: Stock) -> &Self {
         let dir = self.path(&format!("lib/modules/{release}/kernel/drivers/bluetooth"));
         fs::create_dir_all(&dir).unwrap();
         let mut ko = b"\x7fELF stock btusb".to_vec();
-        if fixed {
+        if matches!(stock, Stock::Adapters | Stock::Fixed) {
             ko.extend_from_slice(&[0x03, 0x00, 0xfa, 0x33, 0x10, 0x00, 0x03, 0x00, 0xfa, 0x33, 0x12, 0x00]);
             ko.extend_from_slice(b"Unexpected continuation: %d bytes");
+        }
+        if matches!(stock, Stock::Fixed) {
+            ko.extend_from_slice(b"Barrot: LE Coded PHY disabled to avoid a firmware hang\n");
         }
         fs::write(dir.join("btusb.ko"), ko).unwrap();
         self
